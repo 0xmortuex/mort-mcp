@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import functools
 import os
 import subprocess
 import sys
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
 from . import reference as refmod
 from .toolchain import (
@@ -33,6 +37,29 @@ mcp = MCPServer(
 )
 
 
+F = TypeVar("F", bound=Callable[..., Any])
+
+# Failures an agent can act on. MCPServer only forwards a ToolError's message
+# to the client - anything else arrives as a bare "Error executing tool X" -
+# so these are re-raised as ToolError with their text intact. Anything not
+# listed here is a genuine bug and stays hidden from the client.
+_EXPECTED = (ToolchainError, KeyError, ValueError, FileNotFoundError)
+
+
+def tool(fn: F) -> F:
+    @functools.wraps(fn)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return fn(*args, **kwargs)
+        except _EXPECTED as e:
+            # KeyError's str() wraps the message in quotes; use the raw text.
+            msg = e.args[0] if isinstance(e, KeyError) and e.args else str(e)
+            raise ToolError(str(msg)) from e
+
+    mcp.tool()(wrapper)
+    return fn
+
+
 def _out(proc: subprocess.CompletedProcess[str], limit: int = 20000) -> str:
     text = (proc.stdout or "") + (("\n" + proc.stderr) if proc.stderr.strip() else "")
     text = text.strip()
@@ -41,7 +68,7 @@ def _out(proc: subprocess.CompletedProcess[str], limit: int = 20000) -> str:
     return text
 
 
-@mcp.tool()
+@tool
 def mort_version() -> str:
     """Report the Mort compiler version, language version and where it was found."""
     tc = find_toolchain()
@@ -51,7 +78,7 @@ def mort_version() -> str:
     return f"{v.stdout.strip()} (language {lv.stdout.strip()})\nfound via {where}"
 
 
-@mcp.tool()
+@tool
 def mort_check(source: str | None = None, files: list[str] | None = None,
                warn_unused: bool = False) -> str:
     """Type-check Mort code without building it (fast; needs no C compiler).
@@ -75,7 +102,7 @@ def mort_check(source: str | None = None, files: list[str] | None = None,
         return f"{verdict}:\n{format_diagnostics(diags, srcs)}"
 
 
-@mcp.tool()
+@tool
 def mort_run(source: str | None = None, files: list[str] | None = None,
              stdin: str = "", args: list[str] | None = None, timeout_s: float = 30.0,
              opt_level: str = "0") -> str:
@@ -109,7 +136,7 @@ def mort_run(source: str | None = None, files: list[str] | None = None,
         return f"[{status}]\n{body}" if body else f"[{status}] (no output)"
 
 
-@mcp.tool()
+@tool
 def mort_emit_c(source: str | None = None, files: list[str] | None = None,
                 freestanding: bool = False) -> str:
     """Show the C that Mort generates for a program (useful to see what a
@@ -127,7 +154,7 @@ def mort_emit_c(source: str | None = None, files: list[str] | None = None,
         return _out(proc, limit=60000)
 
 
-@mcp.tool()
+@tool
 def mort_format(source: str) -> str:
     """Format Mort source with the official formatter (`mortc fmt`) and
     return the formatted text."""
@@ -140,7 +167,7 @@ def mort_format(source: str) -> str:
             return fh.read()
 
 
-@mcp.tool()
+@tool
 def mort_std(module: str | None = None) -> str:
     """Look up the standard library.
 
@@ -156,7 +183,7 @@ def mort_std(module: str | None = None) -> str:
     return refmod.module_api(std_dir, module)
 
 
-@mcp.tool()
+@tool
 def mort_docs(query: str, limit: int = 3) -> str:
     """Search the Mort language specification and reference docs.
 
@@ -176,7 +203,7 @@ def mort_docs(query: str, limit: int = 3) -> str:
     return refmod.search(refmod.load_sections(docs), query, limit)
 
 
-@mcp.tool()
+@tool
 def mort_examples(name: str | None = None) -> str:
     """List the compiler's bundled example programs, or show one by name.
     Examples are known-good Mort - a fast way to learn idioms. Needs MORT_HOME."""
