@@ -1,0 +1,25 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.0xmortuex/mort-mcp",
+  "description": "Write, type-check and run Mort code, with language spec and stdlib lookup.",
+  "repository": {
+    "url": "https://github.com/0xmortuex/mort-mcp",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "mort-mcp",
+      "version": "0.1.0",
+      "transport": { "type": "stdio" },
+      "environmentVariables": [
+        {
+          "name": "MORT_HOME",
+          "description": "Path to a checkout of github.com/0xmortuex/Mort (enables docs and examples)",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}
